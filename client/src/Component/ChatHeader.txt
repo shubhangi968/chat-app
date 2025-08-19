@@ -1,0 +1,29 @@
+import React from "react";
+import { Phone, Video, Search } from "lucide-react";
+
+function ChatHeader({ activeChat }) {
+  const friends = {
+    friend1: { name: "Friend 1", avatar: "https://i.pravatar.cc/40?img=1", status: "online" },
+    friend2: { name: "Friend 2", avatar: "https://i.pravatar.cc/40?img=2", status: "last seen 2m ago" },
+  };
+
+  const friend = friends[activeChat];
+
+  return (
+    <div className="flex items-center p-3 border-b border-gray-700 bg-gray-800">
+      <img src={friend.avatar} alt="avatar" className="w-10 h-10 rounded-full mr-3" />
+      <div>
+        <h3 className="text-lg font-semibold">{friend.name}</h3>
+        <p className="text-sm text-green-400">{friend.status}</p>
+      </div>
+
+      <div className="ml-auto flex space-x-4 text-gray-300">
+        <Search className="cursor-pointer hover:text-white" />
+        <Phone className="cursor-pointer hover:text-white" />
+        <Video className="cursor-pointer hover:text-white" />
+      </div>
+    </div>
+  );
+}
+
+export default ChatHeader;
