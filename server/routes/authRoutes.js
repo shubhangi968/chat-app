@@ -2,6 +2,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -82,6 +83,7 @@ router.post(
             newUser.username,
           email:
             newUser.email,
+          profilePicture: newUser.profilePicture || "",
         },
 
         token,
@@ -162,6 +164,7 @@ router.post(
             user.username,
           email:
             user.email,
+          profilePicture: user.profilePicture,
         },
 
         token,
@@ -187,6 +190,7 @@ router.post(
 
 router.get(
   "/search/:username",
+  authMiddleware,
   async (req, res) => {
 
     try {
@@ -226,14 +230,14 @@ router.get(
 
 router.post(
   "/send-request",
+  authMiddleware,
   async (req, res) => {
 
     try {
 
-      const {
-        userId,
-        friendId,
-      } = req.body;
+      const { friendId } = req.body;
+
+      const userId = req.user.id;
 
       if (
         !userId ||
@@ -330,14 +334,15 @@ router.post(
 // ======================================================
 
 router.get(
-  "/friend-requests/:userId",
+  "/friend-requests",
+  authMiddleware,
   async (req, res) => {
 
     try {
 
       const user =
         await User.findById(
-          req.params.userId
+          req.user.id
         ).populate(
           "friendRequests.from",
           "_id username"
@@ -374,14 +379,14 @@ router.get(
 
 router.post(
   "/accept-request",
+  authMiddleware,
   async (req, res) => {
 
     try {
 
-      const {
-        userId,
-        requesterId,
-      } = req.body;
+      const { requesterId } = req.body;
+
+      const userId = req.user.id;
 
       const user =
         await User.findById(
@@ -480,14 +485,14 @@ router.post(
 
 router.post(
   "/decline-request",
+  authMiddleware,
   async (req, res) => {
 
     try {
 
-      const {
-        userId,
-        requesterId,
-      } = req.body;
+      const { requesterId } = req.body;
+
+      const userId = req.user.id;
 
       const user =
         await User.findById(
@@ -534,14 +539,15 @@ router.post(
 // ======================================================
 
 router.get(
-  "/friends/:userId",
+  "/friends",
+  authMiddleware,
   async (req, res) => {
 
     try {
 
       const user =
         await User.findById(
-          req.params.userId
+          req.user.id
         ).populate(
           "friends",
           "_id username profilePicture"
@@ -577,52 +583,47 @@ router.get(
 // ======================================================
 
 router.put(
-  "/profile/:userId",
+  "/profile",
+  authMiddleware,
   async (req, res) => {
 
     try {
 
-      const { userId } =
-        req.params;
+      const userId = req.user.id;
 
       const {
         username,
         profilePicture,
       } = req.body;
 
-      if (!userId) {
-        return res.status(400).json({
-          error:
-            "User ID is required",
-        });
-      }
-
       const user =
-        await User.findById(
-          userId
-        );
+        await User.findById(userId);
 
       if (!user) {
         return res.status(404).json({
-          error:
-            "User not found",
+          error: "User not found",
         });
       }
 
-      if (
-        username &&
-        username.trim()
-      ) {
-        user.username =
-          username.trim();
+      if (username && username.trim()) {
+        const trimmedUsername = username.trim();
+
+        const existingUser = await User.findOne({
+          username: trimmedUsername,
+          _id: { $ne: userId },
+        });
+
+        if (existingUser) {
+          return res.status(400).json({
+            error: "Username already in use",
+          });
+        }
+
+        user.username = trimmedUsername;
       }
 
-      if (
-        profilePicture !==
-        undefined
-      ) {
-        user.profilePicture =
-          profilePicture;
+      if (profilePicture !== undefined) {
+        user.profilePicture = profilePicture;
       }
 
       await user.save();
@@ -655,5 +656,153 @@ router.put(
     }
   }
 );
+
+// ===================================================
+// GET APPEARANCE SETTINGS
+// ===================================================
+
+router.get(
+  "/appearance",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const user = await User.findById(
+        req.user.id
+      ).select("appearance");
+
+      if (!user) {
+        return res.status(404).json({
+          error: "User not found",
+        });
+      }
+
+      res.json(
+        user.appearance
+      );
+
+    } catch (err) {
+
+      console.error(
+        "Get appearance error:",
+        err
+      );
+
+      res.status(500).json({
+        error: err.message,
+      });
+    }
+  }
+);
+
+// ===================================================
+// UPDATE APPEARANCE SETTINGS
+// ===================================================
+
+router.put(
+  "/appearance",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const {
+        theme,
+        accentColor,
+        chatBackground,
+        fontSize,
+        bubbleStyle,
+      } = req.body;
+
+      const user = await User.findById(
+        req.user.id
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          error: "User not found",
+        });
+      }
+
+      // ---------------------------------------------
+      // UPDATE ONLY VALID PROVIDED VALUES
+      // ---------------------------------------------
+
+      if (
+        ["light", "dark", "system"]
+          .includes(theme)
+      ) {
+        user.appearance.theme = theme;
+      }
+
+      if (
+        [
+          "blue",
+          "purple",
+          "green",
+          "pink",
+          "orange",
+        ].includes(accentColor)
+      ) {
+        user.appearance.accentColor =
+          accentColor;
+      }
+
+      if (
+        [
+          "default",
+          "white",
+          "gray",
+          "blue",
+        ].includes(chatBackground)
+      ) {
+        user.appearance.chatBackground =
+          chatBackground;
+      }
+
+      if (
+        [
+          "small",
+          "medium",
+          "large",
+        ].includes(fontSize)
+      ) {
+        user.appearance.fontSize =
+          fontSize;
+      }
+
+      if (
+        [
+          "rounded",
+          "compact",
+          "minimal",
+        ].includes(bubbleStyle)
+      ) {
+        user.appearance.bubbleStyle =
+          bubbleStyle;
+      }
+
+      await user.save();
+
+      res.json(
+        user.appearance
+      );
+
+    } catch (err) {
+
+      console.error(
+        "Update appearance error:",
+        err
+      );
+
+      res.status(500).json({
+        error: err.message,
+      });
+    }
+  }
+);
+
+router.get("/test", (req, res) => {
+  res.json({
+    message: "AUTH ROUTES ARE WORKING"
+  });
+});
 
 export default router;

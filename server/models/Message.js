@@ -5,6 +5,13 @@ const messageSchema = new mongoose.Schema(
     room: {
       type: String,
       required: true,
+      index: true,
+    },
+
+    senderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
 
     sender: {
@@ -15,6 +22,7 @@ const messageSchema = new mongoose.Schema(
     text: {
       type: String,
       required: true,
+      trim: true,
     },
 
     status: {

@@ -1,8 +1,14 @@
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:5000", {
+const token = localStorage.getItem("token");
+
+const socket = io(process.env.REACT_APP_API_URL, {
   transports: ["websocket"],
-    autoConnect: true,
+  autoConnect: true,
+
+  auth: {
+    token,
+  },
 });
 
 export default socket;

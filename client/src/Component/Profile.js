@@ -57,11 +57,12 @@ function Profile({ currentUser, setUser, onClose }) {
             setLoading(true);
 
             const res = await fetch(
-                `http://localhost:5000/api/auth/profile/${currentUser.id}`,
+                `${process.env.REACT_APP_API_URL}/api/auth/profile`,
                 {
                     method: "PUT",
                     headers: {
                         "Content-Type": "application/json",
+                        Authorization: `Bearer ${localStorage.getItem("token")}`,
                     },
                     body: JSON.stringify({
                         username: username.trim(),

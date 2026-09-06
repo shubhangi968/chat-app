@@ -2,13 +2,13 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
+import jwt from "jsonwebtoken";
 import { createServer } from "http";
 import { Server } from "socket.io";
-
 import messageRoutes from "./routes/messageRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import Message from "./models/Message.js";
-
+import User from "./models/User.js";
 dotenv.config();
 
 const app = express();
@@ -19,7 +19,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
   })
 );
@@ -70,21 +70,45 @@ mongoose
 const httpServer =
   createServer(app);
 
-const io = new Server(
-  httpServer,
-  {
-    cors: {
-      origin:
-        "http://localhost:3000",
-      methods: [
-        "GET",
-        "POST",
-        "PUT",
-        "DELETE",
-      ],
-    },
+const io = new Server(httpServer, {
+  cors: {
+    origin: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+  },
+});
+
+// SOCKET AUTHENTICATION
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+
+    if (!token) {
+      return next(
+        new Error("Authentication required")
+      );
+    }
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+
+    socket.userId = String(decoded.id);
+
+    next();
+
+  } catch (error) {
+
+    console.error(
+      "Socket authentication error:",
+      error
+    );
+
+    next(
+      new Error("Invalid or expired token")
+    );
   }
-);
+});
 
 // =====================================================
 // ONLINE USERS
@@ -106,57 +130,32 @@ io.on(
       socket.id
     );
 
-    // ===================================================
-    // REGISTER USER
-    // ===================================================
+    // REGISTER AUTHENTICATED USER
+    socket.on("registerUser", () => {
+      const id = socket.userId;
 
-    socket.on(
-      "registerUser",
-      (userId) => {
+      if (!id) return;
 
-        if (!userId) return;
+      const currentCount =
+        onlineUsers.get(id) || 0;
 
-        // Always use string IDs
-        const id =
-          String(userId);
+      onlineUsers.set(
+        id,
+        currentCount + 1
+      );
 
-        // Prevent duplicate registration
-        if (
-          socket.userId === id
-        ) {
-          return;
-        }
+      socket.join(`user_${id}`);
 
-        socket.userId = id;
+      io.emit(
+        "onlineUsers",
+        Array.from(onlineUsers.keys())
+      );
 
-        // Increase connection count
-        const currentCount =
-          onlineUsers.get(id) || 0;
-
-        onlineUsers.set(
-          id,
-          currentCount + 1
-        );
-
-        // Private room for user
-        socket.join(
-          `user_${id}`
-        );
-
-        // Broadcast online users
-        io.emit(
-          "onlineUsers",
-          Array.from(
-            onlineUsers.keys()
-          )
-        );
-
-        console.log(
-          "🟢 User online:",
-          id
-        );
-      }
-    );
+      console.log(
+        "🟢 User online:",
+        id
+      );
+    });
 
     // ===================================================
     // JOIN CHAT ROOM
@@ -165,10 +164,107 @@ io.on(
     socket.on(
       "joinRoom",
       async (room) => {
-
         try {
-
           if (!room) return;
+
+          // ---------------------------------------------
+          // VERIFY ROOM FORMAT
+          // ---------------------------------------------
+
+          const roomUsers = room.split("_");
+
+          if (roomUsers.length !== 2) {
+            console.log(
+              "❌ Invalid room:",
+              room
+            );
+
+            return;
+          }
+
+          // ---------------------------------------------
+          // VERIFY AUTHENTICATED USER
+          // ---------------------------------------------
+
+          const currentUserId =
+            String(socket.userId);
+
+          if (!roomUsers.includes(currentUserId)) {
+            console.log(
+              "🚫 Unauthorized room access:",
+              currentUserId,
+              "->",
+              room
+            );
+
+            return;
+          }
+
+          // ---------------------------------------------
+          // GET OTHER USER
+          // ---------------------------------------------
+
+          const otherUserId =
+            roomUsers.find(
+              (id) => id !== currentUserId
+            );
+
+          if (!otherUserId) {
+            console.log(
+              "❌ Other user not found in room:",
+              room
+            );
+
+            return;
+          }
+
+          // ---------------------------------------------
+          // VERIFY OTHER USER EXISTS
+          // ---------------------------------------------
+
+          const currentUser =
+            await User.findById(
+              currentUserId
+            ).select("friends");
+
+          const otherUser =
+            await User.findById(
+              otherUserId
+            ).select("_id");
+
+          if (!currentUser || !otherUser) {
+            console.log(
+              "❌ User not found"
+            );
+
+            return;
+          }
+
+          // ---------------------------------------------
+          // VERIFY THEY ARE FRIENDS
+          // ---------------------------------------------
+
+          const areFriends =
+            currentUser.friends.some(
+              (friendId) =>
+                String(friendId) ===
+                String(otherUserId)
+            );
+
+          if (!areFriends) {
+            console.log(
+              "🚫 Chat access denied. Users are not friends:",
+              currentUserId,
+              "->",
+              otherUserId
+            );
+
+            return;
+          }
+
+          // ---------------------------------------------
+          // JOIN PRIVATE ROOM
+          // ---------------------------------------------
 
           socket.join(room);
 
@@ -176,7 +272,10 @@ io.on(
             `👤 ${socket.id} joined room: ${room}`
           );
 
-          // Load last 100 messages
+          // ---------------------------------------------
+          // LOAD LAST 100 MESSAGES
+          // ---------------------------------------------
+
           const oldMessages =
             await Message.find({
               room,
@@ -191,7 +290,10 @@ io.on(
 
           socket.emit(
             "loadMessages",
-            oldMessages
+            {
+              room,
+              messages: oldMessages,
+            }
           );
 
         } catch (error) {
@@ -204,58 +306,112 @@ io.on(
         }
       }
     );
-
     // ===================================================
     // SEND MESSAGE
     // ===================================================
 
-    socket.on(
-      "sendMessage",
-      async (message) => {
-
-        try {
-
-          if (
-            !message ||
-            !message.room ||
-            !message.text ||
-            !message.sender
-          ) {
-            return;
-          }
-
-          const newMessage =
-            await Message.create({
-              room: message.room,
-              sender: message.sender,
-              text: message.text,
-              status: "sent",
-            });
-
-          // Send ONLY once to everyone in room
-          io.to(
-            message.room
-          ).emit(
-            "receiveMessage",
-            newMessage
-          );
-
-          console.log(
-            "📤 Message sent:",
-            newMessage.text
-          );
-
-        } catch (error) {
-
-          console.error(
-            "❌ Error saving message:",
-            error
-          );
-
+    socket.on("sendMessage", async (message) => {
+      try {
+        if (
+          !message ||
+          !message.room ||
+          !message.text?.trim()
+        ) {
+          return;
         }
-      }
-    );
 
+        // ---------------------------------------------
+        // VERIFY ROOM BELONGS TO AUTHENTICATED USER
+        // ---------------------------------------------
+
+        const roomUsers =
+          message.room.split("_");
+
+        if (roomUsers.length !== 2) {
+          console.log(
+            "❌ Invalid message room:",
+            message.room
+          );
+
+          return;
+        }
+
+        const currentUserId =
+          String(socket.userId);
+
+        if (!roomUsers.includes(currentUserId)) {
+          console.log(
+            "🚫 Unauthorized message attempt:",
+            currentUserId,
+            "->",
+            message.room
+          );
+
+          return;
+        }
+
+        // ---------------------------------------------
+        // GET AUTHENTICATED USER
+        // ---------------------------------------------
+
+        const user = await User.findById(
+          socket.userId
+        ).select("_id username");
+
+        if (!user) {
+          console.log(
+            "❌ Authenticated user not found:",
+            socket.userId
+          );
+
+          return;
+        }
+
+        // ---------------------------------------------
+        // SAVE MESSAGE
+        // ---------------------------------------------
+
+        const newMessage =
+          await Message.create({
+            room: message.room,
+
+            // Authenticated user's ID
+            senderId: user._id,
+
+            // Authenticated user's username
+            // Do NOT trust frontend username
+            sender: user.username,
+
+            text: message.text.trim(),
+
+            status: "sent",
+          });
+
+        // ---------------------------------------------
+        // SEND TO BOTH USERS IN THE ROOM
+        // ---------------------------------------------
+
+        io.to(message.room).emit(
+          "receiveMessage",
+          newMessage
+        );
+
+        console.log(
+          "📤 Message sent by:",
+          user.username,
+          "|",
+          newMessage.text
+        );
+
+      } catch (error) {
+
+        console.error(
+          "❌ Error saving message:",
+          error
+        );
+
+      }
+    });
     // ===================================================
     // FRIEND REQUEST NOTIFICATION
     // ===================================================
@@ -355,11 +511,10 @@ io.on(
 // =====================================================
 
 httpServer.listen(
-  PORT,
-  () => {
+  PORT, "0.0.0.0", () => {
 
     console.log(
-      `🚀 Server running on http://localhost:${PORT}`
+      `🚀 Server running on ${PORT}`
     );
 
   }

@@ -12,6 +12,8 @@ function Sidebar({
   setContacts,
   onlineUsers = [],
   socket,
+  onOpenAppearance,
+  onLogout,
 
 }) {
   const [username, setUsername] = useState("");
@@ -31,7 +33,12 @@ function Sidebar({
       setSearching(true);
 
       const res = await fetch(
-        `http://localhost:5000/api/auth/search/${username}`
+        `${process.env.REACT_APP_API_URL}/api/auth/search/${username}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
       );
 
       const data = await res.json();
@@ -58,14 +65,14 @@ function Sidebar({
   const sendRequest = async (friendId) => {
     try {
       const res = await fetch(
-        "http://localhost:5000/api/auth/send-request",
+        `${process.env.REACT_APP_API_URL}/api/auth/send-request`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
           body: JSON.stringify({
-            userId: currentUser.id,
             friendId: friendId,
           }),
         }
@@ -101,7 +108,12 @@ function Sidebar({
   const loadFriendRequests = async () => {
     try {
       const res = await fetch(
-        `http://localhost:5000/api/auth/friend-requests/${currentUser.id}`
+        `${process.env.REACT_APP_API_URL}/api/auth/friend-requests`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
       );
 
       const data = await res.json();
@@ -149,14 +161,15 @@ function Sidebar({
   const acceptRequest = async (requesterId) => {
     try {
       const res = await fetch(
-        "http://localhost:5000/api/auth/accept-request",
+        `${process.env.REACT_APP_API_URL}/api/auth/accept-request`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+
           },
           body: JSON.stringify({
-            userId: currentUser.id,
             requesterId,
           }),
         }
@@ -175,7 +188,12 @@ function Sidebar({
 
       // Reload friends
       const friendsRes = await fetch(
-        `http://localhost:5000/api/auth/friends/${currentUser.id}`
+        `${process.env.REACT_APP_API_URL}/api/auth/friends`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
       );
 
       const friendsData = await friendsRes.json();
@@ -195,14 +213,14 @@ function Sidebar({
   const declineRequest = async (requesterId) => {
     try {
       const res = await fetch(
-        "http://localhost:5000/api/auth/decline-request",
+        `${process.env.REACT_APP_API_URL}/api/auth/decline-request`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
           body: JSON.stringify({
-            userId: currentUser.id,
             requesterId,
           }),
         }
@@ -491,8 +509,8 @@ function Sidebar({
 
                     <div
                       className={`w-9 h-9 rounded-full flex items-center justify-center font-semibold overflow-hidden ${currentRoom === room
-                          ? "bg-white text-blue-500"
-                          : "bg-blue-100 text-blue-600"
+                        ? "bg-white text-blue-500"
+                        : "bg-blue-100 text-blue-600"
                         }`}
                     >
                       {friend.profilePicture ? (
@@ -576,12 +594,21 @@ function Sidebar({
             </button>
 
             <button
-              onClick={() => alert("Appearance settings coming soon!")}
+              onClick={() => {
+                setShowSettings(false);
+                onOpenAppearance();
+              }}
               className="w-full text-left px-4 py-3 text-sm hover:bg-gray-100"
             >
               🎨 Appearance
             </button>
 
+            <button
+              onClick={onLogout}
+              className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50"
+            >
+              🚪 Logout
+            </button>
             <button
               onClick={() => alert("Privacy settings coming soon!")}
               className="w-full text-left px-4 py-3 text-sm hover:bg-gray-100"
